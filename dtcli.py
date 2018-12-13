@@ -1,3 +1,5 @@
+#!/usr/bin/python3 
+
 # Required Libraries
 import sys
 import io
@@ -62,8 +64,7 @@ MONSPEC_DATAHANDLING_DEMODATA = -1
 # =========================================================
 
 # Configuration is read from config file if exists. If you want to go back to default simply delete the config file
-osfileslashes = "/"
-dtconfigfilename = os.path.dirname(os.path.abspath(__file__)) + osfileslashes + "dtconfig.json"
+dtconfigfilename = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dtconfig.json")
 config = {
     "tenanthost"  : "smpljson",   # "abc12345.live.dynatrace.com" # this would be the configuration for a specific Dynatrace SaaS Tenant
     "apitoken"    : "smpltoken",  # YOUR API TOKEN, generated with Dynatrace
@@ -96,19 +97,9 @@ def getRequestUrl(apiEndpoint, queryString):
 
 # Constructs the cached filename based on API Endpoint and Query String
 def getCacheFilename(apiEndpoint, queryString):
-    
-    # get the cachedir from our config or use the current working directory
-    cachedir = getAttributeOrNone(config, "cachdir")
-    if cachedir is None or cachedir == "":
-        cachedir = os.path.dirname(os.path.abspath(__file__))
-
-    # make sure the cachedir has the trailing slash
-    if not cachedir.endswith(osfileslashes) :
-        cachedir += osfileslashes
-
-    fullCacheFilename = cachedir + osfileslashes + config["tenanthost"].replace("https://","").replace(".", "_") + osfileslashes + apiEndpoint.replace("/","_")
+    fullCacheFilename = os.path.join(os.path.dirname(os.path.abspath(__file__)), cachedir, config["tenanthost"].replace(".", "_"),  apiEndpoint.replace("/","_"))
     if(queryString is not None and len(queryString) > 0):
-        fullCacheFilename += osfileslashes + urllib.parse.unquote(queryString).replace(".", "_").replace(":", "_").replace("?", "_").replace("&", "_")
+        os.path.join(fullCacheFilename, urllib.parse.unquote(queryString).replace(".", "_").replace(":", "_").replace("?", "_").replace("&", "_"))
     fullCacheFilename += ".json"
 
     return fullCacheFilename
@@ -1448,12 +1439,12 @@ def doDQLReport(doHelp, args, doPrint):
             allUnitsForReport[timeseriesName] = unit;
 
     # read our overall html template
-    reportTemplateFile = open(os.path.dirname(os.path.abspath(__file__)) + osfileslashes + "report" + osfileslashes + "report.html", "r")
+    reportTemplateFile = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "report", "report.html"), "r")
     reportTemplateStr = reportTemplateFile.read()
     reportTemplateFile.close()
 
     # now lets generate the report itself - we read the chart template and the report template from our report directory
-    chartTemplateFile = open(os.path.dirname(os.path.abspath(__file__)) + osfileslashes + "report" + osfileslashes + "r_template.html", "r")
+    chartTemplateFile = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "report", "r_template.html"), "r")
     chartTemplateStr = chartTemplateFile.read()
     chartTemplateFile.close()
 
@@ -1468,7 +1459,7 @@ def doDQLReport(doHelp, args, doPrint):
     # now lets write the final report back to disk - also set the title
     dqlQueryString = " ".join(args[2:])
     reportTemplateStr = reportTemplateStr.replace("reportTitlePlaceholder", "Generated for DQL: " + dqlQueryString)
-    reportFileName = os.path.dirname(os.path.abspath(__file__)) + osfileslashes + "dqlreport.html"
+    reportFileName = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dqlreport.html")
 
     finalReportFile = open(reportFileName, "w")
     finalReportFile.write(reportTemplateStr)
