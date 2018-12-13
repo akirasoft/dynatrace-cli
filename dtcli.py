@@ -97,7 +97,12 @@ def getRequestUrl(apiEndpoint, queryString):
 
 # Constructs the cached filename based on API Endpoint and Query String
 def getCacheFilename(apiEndpoint, queryString):
-    fullCacheFilename = os.path.join(os.path.dirname(os.path.abspath(__file__)), cachedir, config["tenanthost"].replace(".", "_"),  apiEndpoint.replace("/","_"))
+    # get the cachedir from our config or use the current working directory
+    cachedir = getAttributeOrNone(config, "cachdir")
+    if cachedir is None or cachedir == "":
+        cachedir = os.path.dirname(os.path.abspath(__file__))
+
+    fullCacheFilename = os.path.join(os.path.dirname(os.path.abspath(__file__)), cachedir, config["tenanthost"].replace(".", "_").replace(":","_"),  apiEndpoint.replace("/","_"))
     if(queryString is not None and len(queryString) > 0):
         os.path.join(fullCacheFilename, urllib.parse.unquote(queryString).replace(".", "_").replace(":", "_").replace("?", "_").replace("&", "_"))
     fullCacheFilename += ".json"
@@ -224,6 +229,9 @@ def queryDynatraceAPIEx(httpMethod, apiEndpoint, queryString, postBody):
 
     # we first validate if we have the file in cache. NOTE: we only store HTTP GET data in the Cache. NO POST!
     fullCacheFilename = getCacheFilename(apiEndpoint, queryString)
+    if (getAttributeOrDefault(config, "debug", 0) == 1) :
+        print("DEBUG - getCacheFilename: " + fullCacheFilename)
+
     readFromCache = False
     if(os.path.isfile(fullCacheFilename)):
         cacheupdate = getAttributeOrNone(config, "cacheupdate")
@@ -963,6 +971,8 @@ def testMain():
         #doTimeseries(False, ["dtcli", "ts", "query", "com.dynatrace.builtin:appmethod.useractionsperminute[count%hour]"], True)
         #doTimeseries(False, ["dtcli", "ts", "query", "com.dynatrace.builtin:appmethod.useractionsperminute[count%hour]", "APPLICATION_METHOD-7B11AF03C396DCBC"], True)
         #doTimeseries(False, ["dtcli", "ts", "query", "com.dynatrace.builtin:app.useractionduration[avg%hour]", "APPLICATION-F5E7AEA0AB971DB1"], True)
+        #doTimeseries(False, ["dtcli", "ts", "query", "com.dynatrace.builtin:service.responsetime", "SERVICE-10A1AAB8E0389E06"], True)
+
 
         # doDQL(False, ["dtcli", "dql", "app", "www.easytravel.com", "appmethod.useractionsperminute[count%hour],app.useractionduration[avg%hour]"], True)
         # doDQL(False, ["dtcli", "dql", "host", ".*demo.*", "host.cpu.system[max%hour]"], True)
@@ -1253,11 +1263,11 @@ def doTimeseries(doHelp, args, doPrint):
                 timeframedef = TimeframeDef(timeframe)
                 if timeframedef.isValid():
                     if timeframedef.isRelative():
-                        timeframedef.queryString = "&relativeTime=" + timeframedef.timeframeAsStr()
+                        timeframedef.queryString = "relativeTime=" + timeframedef.timeframeAsStr()
                     if timeframedef.isAbsolute():
-                        timeframedef.queryString = "&startTimestamp=" + timeframedef.timeframeAsStr(0)
+                        timeframedef.queryString = "startTimestamp=" + timeframedef.timeframeAsStr(0)
                         if timeframedef.isTimerange():
-                            timeframedef.queryString += "&endTimestamp=" + timeframedef.timeframeAsStr(1)
+                            timeframedef.queryString += "endTimestamp=" + timeframedef.timeframeAsStr(1)
                 else:
                     timeframedef.queryString = ""
 
@@ -1267,10 +1277,23 @@ def doTimeseries(doHelp, args, doPrint):
                 aggregationQueryString = "&aggregationType=" + aggregation.lower();
                 if (percentile is not None) :
                     aggregationQueryString += "&percentile=" + percentile;
-                jsonContent = queryDynatraceAPI(True, API_ENDPOINT_TIMESERIES, "timeseriesId=" + timeseriesId + timeframedef.queryString + aggregationQueryString, "")
+                
+                # add the includeData=true to the API as otherwise we dont get any dataPoints
+                if action == 1: # query
+                    aggregationQueryString += "&includeData=true"
+
+                # if we have a list of entities - add them as individual parameters
+                if((entities is not None) and len(entities) > 0):
+                    for entity in entities:
+                        aggregationQueryString += "&entity=" + entity
+
+                jsonContent = queryDynatraceAPI(True, API_ENDPOINT_TIMESERIES + "/" + timeseriesId, timeframedef.queryString + aggregationQueryString, "")
 
                 # We got our jsonContent - now we need to return the data for all Entities or the specific entities that got passed to us
-                jsonContentResult = jsonContent["result"]
+                jsonContentResult = getAttributeOrNone(jsonContent, "dataResult")
+                if(jsonContentResult == None):
+                    jsonContentResult = getAttributeOrNone(jsonContent, "result")
+
                 if(jsonContentResult):
                     if(jsonContentResult["timeseriesId"] == timeseriesId):
                         if action == 1: # query
@@ -1292,6 +1315,10 @@ def doTimeseries(doHelp, args, doPrint):
                             if doPrint:
                                 print(jsonContentResult["entities"])
                             return jsonContentResult["entities"]
+                else:
+                    if doPrint:
+                        print("Query returned no data")
+                        return "Query returned no data"
             else:
                 doTimeseries(True, args, doPrint)
         
