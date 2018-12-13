@@ -1,3 +1,5 @@
+#!/usr/bin/python3 
+
 # Required Libraries
 import sys
 import io
@@ -10,6 +12,7 @@ import operator
 import urllib
 import requests
 import urllib3
+import uuid
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # =========================================================
@@ -61,8 +64,7 @@ MONSPEC_DATAHANDLING_DEMODATA = -1
 # =========================================================
 
 # Configuration is read from config file if exists. If you want to go back to default simply delete the config file
-osfileslashes = "/"
-dtconfigfilename = os.path.dirname(os.path.abspath(__file__)) + osfileslashes + "dtconfig.json"
+dtconfigfilename = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dtconfig.json")
 config = {
     "tenanthost"  : "smpljson",   # "abc12345.live.dynatrace.com" # this would be the configuration for a specific Dynatrace SaaS Tenant
     "apitoken"    : "smpltoken",  # YOUR API TOKEN, generated with Dynatrace
@@ -95,19 +97,14 @@ def getRequestUrl(apiEndpoint, queryString):
 
 # Constructs the cached filename based on API Endpoint and Query String
 def getCacheFilename(apiEndpoint, queryString):
-    
     # get the cachedir from our config or use the current working directory
     cachedir = getAttributeOrNone(config, "cachdir")
     if cachedir is None or cachedir == "":
         cachedir = os.path.dirname(os.path.abspath(__file__))
 
-    # make sure the cachedir has the trailing slash
-    if not cachedir.endswith(osfileslashes) :
-        cachedir += osfileslashes
-
-    fullCacheFilename = cachedir + osfileslashes + config["tenanthost"].replace("https://","").replace(".", "_") + osfileslashes + apiEndpoint.replace("/","_")
+    fullCacheFilename = os.path.join(os.path.dirname(os.path.abspath(__file__)), cachedir, config["tenanthost"].replace(".", "_").replace(":","_"),  apiEndpoint.replace("/","_"))
     if(queryString is not None and len(queryString) > 0):
-        fullCacheFilename += osfileslashes + urllib.parse.unquote(queryString).replace(".", "_").replace(":", "_").replace("?", "_").replace("&", "_")
+        os.path.join(fullCacheFilename, urllib.parse.unquote(queryString).replace(".", "_").replace(":", "_").replace("?", "_").replace("&", "_"))
     fullCacheFilename += ".json"
 
     return fullCacheFilename
@@ -232,6 +229,9 @@ def queryDynatraceAPIEx(httpMethod, apiEndpoint, queryString, postBody):
 
     # we first validate if we have the file in cache. NOTE: we only store HTTP GET data in the Cache. NO POST!
     fullCacheFilename = getCacheFilename(apiEndpoint, queryString)
+    if (getAttributeOrDefault(config, "debug", 0) == 1) :
+        print("DEBUG - getCacheFilename: " + fullCacheFilename)
+
     readFromCache = False
     if(os.path.isfile(fullCacheFilename)):
         cacheupdate = getAttributeOrNone(config, "cacheupdate")
@@ -971,6 +971,8 @@ def testMain():
         #doTimeseries(False, ["dtcli", "ts", "query", "com.dynatrace.builtin:appmethod.useractionsperminute[count%hour]"], True)
         #doTimeseries(False, ["dtcli", "ts", "query", "com.dynatrace.builtin:appmethod.useractionsperminute[count%hour]", "APPLICATION_METHOD-7B11AF03C396DCBC"], True)
         #doTimeseries(False, ["dtcli", "ts", "query", "com.dynatrace.builtin:app.useractionduration[avg%hour]", "APPLICATION-F5E7AEA0AB971DB1"], True)
+        #doTimeseries(False, ["dtcli", "ts", "query", "com.dynatrace.builtin:service.responsetime", "SERVICE-10A1AAB8E0389E06"], True)
+
 
         # doDQL(False, ["dtcli", "dql", "app", "www.easytravel.com", "appmethod.useractionsperminute[count%hour],app.useractionduration[avg%hour]"], True)
         # doDQL(False, ["dtcli", "dql", "host", ".*demo.*", "host.cpu.system[max%hour]"], True)
@@ -1261,11 +1263,11 @@ def doTimeseries(doHelp, args, doPrint):
                 timeframedef = TimeframeDef(timeframe)
                 if timeframedef.isValid():
                     if timeframedef.isRelative():
-                        timeframedef.queryString = "&relativeTime=" + timeframedef.timeframeAsStr()
+                        timeframedef.queryString = "relativeTime=" + timeframedef.timeframeAsStr()
                     if timeframedef.isAbsolute():
-                        timeframedef.queryString = "&startTimestamp=" + timeframedef.timeframeAsStr(0)
+                        timeframedef.queryString = "startTimestamp=" + timeframedef.timeframeAsStr(0)
                         if timeframedef.isTimerange():
-                            timeframedef.queryString += "&endTimestamp=" + timeframedef.timeframeAsStr(1)
+                            timeframedef.queryString += "endTimestamp=" + timeframedef.timeframeAsStr(1)
                 else:
                     timeframedef.queryString = ""
 
@@ -1275,10 +1277,23 @@ def doTimeseries(doHelp, args, doPrint):
                 aggregationQueryString = "&aggregationType=" + aggregation.lower();
                 if (percentile is not None) :
                     aggregationQueryString += "&percentile=" + percentile;
-                jsonContent = queryDynatraceAPI(True, API_ENDPOINT_TIMESERIES, "timeseriesId=" + timeseriesId + timeframedef.queryString + aggregationQueryString, "")
+                
+                # add the includeData=true to the API as otherwise we dont get any dataPoints
+                if action == 1: # query
+                    aggregationQueryString += "&includeData=true"
+
+                # if we have a list of entities - add them as individual parameters
+                if((entities is not None) and len(entities) > 0):
+                    for entity in entities:
+                        aggregationQueryString += "&entity=" + entity
+
+                jsonContent = queryDynatraceAPI(True, API_ENDPOINT_TIMESERIES + "/" + timeseriesId, timeframedef.queryString + aggregationQueryString, "")
 
                 # We got our jsonContent - now we need to return the data for all Entities or the specific entities that got passed to us
-                jsonContentResult = jsonContent["result"]
+                jsonContentResult = getAttributeOrNone(jsonContent, "dataResult")
+                if(jsonContentResult == None):
+                    jsonContentResult = getAttributeOrNone(jsonContent, "result")
+
                 if(jsonContentResult):
                     if(jsonContentResult["timeseriesId"] == timeseriesId):
                         if action == 1: # query
@@ -1300,6 +1315,10 @@ def doTimeseries(doHelp, args, doPrint):
                             if doPrint:
                                 print(jsonContentResult["entities"])
                             return jsonContentResult["entities"]
+                else:
+                    if doPrint:
+                        print("Query returned no data")
+                        return "Query returned no data"
             else:
                 doTimeseries(True, args, doPrint)
         
@@ -1447,12 +1466,12 @@ def doDQLReport(doHelp, args, doPrint):
             allUnitsForReport[timeseriesName] = unit;
 
     # read our overall html template
-    reportTemplateFile = open(os.path.dirname(os.path.abspath(__file__)) + osfileslashes + "report" + osfileslashes + "report.html", "r")
+    reportTemplateFile = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "report", "report.html"), "r")
     reportTemplateStr = reportTemplateFile.read()
     reportTemplateFile.close()
 
     # now lets generate the report itself - we read the chart template and the report template from our report directory
-    chartTemplateFile = open(os.path.dirname(os.path.abspath(__file__)) + osfileslashes + "report" + osfileslashes + "r_template.html", "r")
+    chartTemplateFile = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "report", "r_template.html"), "r")
     chartTemplateStr = chartTemplateFile.read()
     chartTemplateFile.close()
 
@@ -1467,7 +1486,7 @@ def doDQLReport(doHelp, args, doPrint):
     # now lets write the final report back to disk - also set the title
     dqlQueryString = " ".join(args[2:])
     reportTemplateStr = reportTemplateStr.replace("reportTitlePlaceholder", "Generated for DQL: " + dqlQueryString)
-    reportFileName = os.path.dirname(os.path.abspath(__file__)) + osfileslashes + "dqlreport.html"
+    reportFileName = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dqlreport.html")
 
     finalReportFile = open(reportFileName, "w")
     finalReportFile.write(reportTemplateStr)
@@ -1733,8 +1752,13 @@ def doMonspec(doHelp, args, doPrint):
             print("")
     else:
         actionTypes = ["init", "remove", "pull", "push", "base", "pullcompare", "pushcompare", "pushdeploy", "demopull", "demopush", "demobase"]
+
+        if (len(args) <= 4):
+            doMonspec(True, args, doPrint)
+            return;
+
         action = args[2]
-        if (len(args) <= 4) or not operator.contains(actionTypes, args[2]):
+        if (not operator.contains(actionTypes, args[2])):
             # Didnt provide the correct parameters - show help!
             doMonspec(True, args, doPrint)
             return;
