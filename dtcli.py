@@ -10,6 +10,7 @@ import operator
 import urllib
 import requests
 import urllib3
+import uuid
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # =========================================================
@@ -1733,8 +1734,13 @@ def doMonspec(doHelp, args, doPrint):
             print("")
     else:
         actionTypes = ["init", "remove", "pull", "push", "base", "pullcompare", "pushcompare", "pushdeploy", "demopull", "demopush", "demobase"]
+
+        if (len(args) <= 4):
+            doMonspec(True, args, doPrint)
+            return;
+
         action = args[2]
-        if (len(args) <= 4) or not operator.contains(actionTypes, args[2]):
+        if (not operator.contains(actionTypes, args[2])):
             # Didnt provide the correct parameters - show help!
             doMonspec(True, args, doPrint)
             return;
