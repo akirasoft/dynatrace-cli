@@ -18,3 +18,4 @@ externalsynthtest.py
 .vscode/launch.json
 dtconfig*.json
 nap363*/*
+monspec/monspec_nap.json

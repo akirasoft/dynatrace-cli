@@ -249,6 +249,8 @@ def queryDynatraceAPIEx(httpMethod, apiEndpoint, queryString, postBody):
 
     jsonContent = None
     if (httpMethod == HTTP_GET) and readFromCache:
+        if (getAttributeOrDefault(config, "debug", 0) == 1) :
+            print("Read from Cache!")
         with open(fullCacheFilename) as json_data:
             jsonContent = json.load(json_data)
     else:
@@ -691,9 +693,23 @@ def queryEntitiesForMonspecEnvironmentEx(monspec, entitydefname, environmentdefn
 
     # lets get the tags from the environment definition
     entityType = monspec[entitydefname]["etype"]
-    tagsForQuery = monspec[entitydefname]["environments"][environmentdefname]["tags"]
+    entities = getAttributeOrNone(monspec[entitydefname]["environments"][environmentdefname], "entities")
 
-    # lets get the entity IDs that match the tags
+    # if we have entities defined we use them
+    if(entities is not None):
+        if(returnedFieldList == "entityId"): 
+            return entities
+
+        entityQueryString = ""
+        for entity in entities:
+            if len(entityQueryString) > 0:
+                entityQueryString += "&"
+            entityQueryString += "entity=" + entity
+        foundEntities = doEntity(False, ["dtcli", "ent", monspecConvertEntityType(entityType), entityQueryString, returnedFieldList], False)        
+        return foundEntities
+
+    # if we have tags - lets get the entity IDs that match the tags
+    tagsForQuery = getAttributeOrNone(monspec[entitydefname]["environments"][environmentdefname], "tags")
     foundEntities = doEntity(False, ["dtcli", "ent", monspecConvertEntityType(entityType), tagsForQuery, returnedFieldList], False)
     return foundEntities    
 
@@ -1151,8 +1167,12 @@ def doEntity(doHelp, args, doPrint):
                 args[3] = None
 
             # if arg(3) is in the form of tag=[CONTEXTLESS]DeploymentGroup=Staging then we just pass it on as the queryString    
+            # if arg(3) is in the form of entity=TYPE-ABCDE1234 then we just pass it on as a queryString
             if(type(args[3]) is str) :
                 if(args[3].startswith("tag=")):
+                    queryString = args[3]
+                    args[3] = None
+                if(args[3].startswith("entity=")):
                     queryString = args[3]
                     args[3] = None
 
@@ -1267,7 +1287,7 @@ def doTimeseries(doHelp, args, doPrint):
                     if timeframedef.isAbsolute():
                         timeframedef.queryString = "startTimestamp=" + timeframedef.timeframeAsStr(0)
                         if timeframedef.isTimerange():
-                            timeframedef.queryString += "endTimestamp=" + timeframedef.timeframeAsStr(1)
+                            timeframedef.queryString += "&endTimestamp=" + timeframedef.timeframeAsStr(1)
                 else:
                     timeframedef.queryString = ""
 
@@ -1811,8 +1831,13 @@ def doMonspec(doHelp, args, doPrint):
             # push: also pushes the metrics to dynatrace
             # base: sets thresholds
             envservicenames = args[5].split("/")
+
             pulledPerformanceSignature = pullMonspecMetrics(monspec, envservicenames[0], envservicenames[1], args[6], args[7], MONSPEC_PERFSIGNATURE_RESULT, MONSPEC_DATAHANDLING_NORMAL)
             result = { "performanceSignature" : pulledPerformanceSignature}
+
+            # even though we just pull data 
+            totalViolations = calculateMonspecThresholdAndViolations(monspec, envservicenames[0], None, MONSPEC_PERFSIGNATURE_RESULT, MONSPEC_PERFSIGNATURE_RESULT_COMPARE)
+            result["totalViolations"] = totalViolations;
 
             if action == "pull":
                 result["comment"] = "Pulled metrics for " + args[5]
